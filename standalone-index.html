@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B2B Growth Diagnostic Tool</title>
+  <meta name="description" content="Diagnose your B2B growth bottlenecks in 2 minutes - analyze customer acquisition, retention, and growth velocity">
+  
+  <!-- React & Babel for JSX -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <!-- React Component -->
+  <script type="text/babel">
+import React, { useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts';
+
+function GrowthDiagnostic() {
+  const [step, setStep] = useState('intro');
+  const [formData, setFormData] = useState({
+    currentRevenue: '',
+    goalRevenue: '',
+    totalCustomers: '',
+    newCustomers: '',
+    lostCustomers: '',
+    marketingSpend: ''
+  });
+  const [results, setResults] = useState(null);
+
+  const calculateResults = () => {
+    const currentRevenue = parseFloat(formData.currentRevenue);
+    const goalRevenue = parseFloat(formData.goalRevenue);
+    const totalCustomers = parseFloat(formData.totalCustomers);
+    const newCustomers = parseFloat(formData.newCustomers);
+    const lostCustomers = parseFloat(formData.lostCustomers);
+    const marketingSpend = parseFloat(formData.marketingSpend);
+
+    // Edge case: No existing customers
+    if (totalCustomers === 0) {
+      alert("This tool is for companies with existing customers. If you're pre-launch, these metrics don't apply yet.");
+      return;
+    }
+
+    // Edge case: No revenue
+    if (currentRevenue === 0) {
+      alert("Please enter a current revenue greater than $0");
+      return;
+    }
+
+    // Edge case: No new customers (special handling - allow but flag)
+    const isStagnant = newCustomers === 0;
+    
+    // Edge case: No marketing spend (special handling - allow but flag)
+    const isOrganic = marketingSpend === 0;
+
+    // Core calculations
+    const netNewCustomers = newCustomers - lostCustomers;
+    const currentGrowthRate = (netNewCustomers / totalCustomers) * 100;
+    const revenueGrowthNeeded = ((goalRevenue - currentRevenue) / currentRevenue) * 100;
+    const monthsToGoal = 12;
+    
+    // Required customer growth
+    const requiredTotalCustomers = totalCustomers * (goalRevenue / currentRevenue);
+    const customersNeeded = requiredTotalCustomers - totalCustomers;
+    const netCustomersNeededPerMonth = customersNeeded / monthsToGoal;
+    const gap = netCustomersNeededPerMonth - netNewCustomers;
+    
+    // Average revenue per customer
+    const arpc = currentRevenue / totalCustomers;
+    
+    // Churn rate
+    const monthlyChurnRate = (lostCustomers / totalCustomers);
+    const churnRatePercent = monthlyChurnRate * 100;
+    
+    // LTV calculation (assuming 70% gross margin)
+    const avgCustomerLifetimeMonths = monthlyChurnRate > 0 ? (1 / monthlyChurnRate) : 100;
+    const grossMargin = 0.7;
+    const ltv = arpc * avgCustomerLifetimeMonths * grossMargin;
+    
+    // CAC and cost to scale (only if marketing spend exists)
+    const cac = isOrganic ? 0 : (marketingSpend / newCustomers);
+    const ltvCacRatio = isOrganic || cac === 0 ? 999 : (ltv / cac); // High number if organic
+    
+    // Payback period (months to recover CAC)
+    const monthlyGrossProfit = arpc * grossMargin;
+    const paybackPeriodMonths = isOrganic || cac === 0 ? 0 : (cac / monthlyGrossProfit);
+    
+    const additionalCustomersNeeded = Math.max(0, gap);
+    const additionalGrossCustomersNeeded = additionalCustomersNeeded + lostCustomers;
+    const costToScale = cac * additionalGrossCustomersNeeded;
+    const spendAsPercentOfRevenue = (marketingSpend / currentRevenue) * 100;
+    
+    // Sanity checks for suspicious data
+    const warnings = [];
+    
+    if (isStagnant) {
+      warnings.push("You're not acquiring any new customers. Growth is impossible without acquisition.");
+    }
+    
+    if (isOrganic) {
+      warnings.push("$0 marketing spend detected. We can't calculate CAC - assuming organic/word-of-mouth growth.");
+    }
+    
+    if (arpc > 10000 && !warnings.some(w => w.includes("high"))) {
+      warnings.push("Your average revenue per customer is very high ($" + arpc.toFixed(0) + "/mo). Double-check your numbers.");
+    }
+    if (arpc < 10 && !warnings.some(w => w.includes("low"))) {
+      warnings.push("Your average revenue per customer is very low ($" + arpc.toFixed(0) + "/mo). This tool is designed for B2B SaaS.");
+    }
+    if (!isOrganic && cac < 50) {
+      warnings.push("Your CAC seems unusually low ($" + cac.toFixed(0) + "). Make sure you're including all marketing/sales costs.");
+    }
+    if (spendAsPercentOfRevenue > 200) {
+      warnings.push("You're spending " + spendAsPercentOfRevenue.toFixed(0) + "% of revenue on marketing - much more than you earn.");
+    }
+    if (!isOrganic && paybackPeriodMonths > avgCustomerLifetimeMonths) {
+      warnings.push("Your payback period (" + paybackPeriodMonths.toFixed(1) + " months) is longer than average customer lifetime (" + avgCustomerLifetimeMonths.toFixed(1) + " months) - you never recover CAC.");
+    }
+    
+    // Determine primary bottleneck
+    let bottleneck = 'balanced';
+    let bottleneckMessage = '';
+    
+    if (isStagnant) {
+      bottleneck = 'stagnant';
+      bottleneckMessage = "No customer acquisition happening";
+    } else if (lostCustomers >= newCustomers * 0.8) {
+      bottleneck = 'retention';
+      bottleneckMessage = "You're losing almost as many customers as you're gaining";
+    } else if (netNewCustomers < netCustomersNeededPerMonth * 0.5) {
+      bottleneck = 'acquisition';
+      bottleneckMessage = "You're not acquiring customers fast enough";
+    } else if (gap > 0 && gap < netNewCustomers * 0.3) {
+      bottleneck = 'close';
+      bottleneckMessage = "You're close, but need to accelerate slightly";
+    } else if (gap <= 0) {
+      bottleneck = 'ontrack';
+      bottleneckMessage = "You're on track to hit your goal";
+    }
+    
+    // Determine status based on gap, unit economics, and payback
+    let status = 'healthy';
+    let statusColor = 'emerald';
+    
+    if (isStagnant || (!isOrganic && (ltvCacRatio < 1 || paybackPeriodMonths > avgCustomerLifetimeMonths)) || gap > netNewCustomers) {
+      status = 'critical';
+      statusColor = 'red';
+    } else if (!isOrganic && (ltvCacRatio < 3 || paybackPeriodMonths > 12) || gap > netNewCustomers * 0.5) {
+      status = 'warning';
+      statusColor = 'amber';
+    }
+
+    setResults({
+      netNewCustomers: netNewCustomers.toFixed(1),
+      currentGrowthRate: currentGrowthRate.toFixed(1),
+      revenueGrowthNeeded: revenueGrowthNeeded.toFixed(0),
+      netCustomersNeededPerMonth: netCustomersNeededPerMonth.toFixed(1),
+      gap: gap.toFixed(1),
+      arpc: arpc.toFixed(0),
+      churnRate: churnRatePercent.toFixed(1),
+      ltv: ltv.toFixed(0),
+      ltvCacRatio: isOrganic ? 'N/A' : ltvCacRatio.toFixed(2),
+      avgLifetimeMonths: avgCustomerLifetimeMonths.toFixed(1),
+      paybackPeriodMonths: isOrganic ? 'N/A' : paybackPeriodMonths.toFixed(1),
+      cac: isOrganic ? 'N/A' : cac.toFixed(0),
+      costToScale: costToScale.toFixed(0),
+      spendAsPercentOfRevenue: spendAsPercentOfRevenue.toFixed(1),
+      additionalGrossCustomersNeeded: additionalGrossCustomersNeeded.toFixed(1),
+      bottleneck,
+      bottleneckMessage,
+      status,
+      statusColor,
+      warnings,
+      isOrganic,
+      isStagnant,
+      // Pass through for display
+      newCustomers: newCustomers.toFixed(0),
+      lostCustomers: lostCustomers.toFixed(0),
+      currentRevenue: currentRevenue.toFixed(0),
+      goalRevenue: goalRevenue.toFixed(0),
+      marketingSpend: marketingSpend.toFixed(0)
+    });
+
+    setStep('results');
+  };
+
+  const resetTool = () => {
+    setStep('intro');
+    setFormData({ currentRevenue: '', goalRevenue: '', totalCustomers: '', newCustomers: '', lostCustomers: '', marketingSpend: '' });
+    setResults(null);
+  };
+
+  // Intro Screen
+  if (step === 'intro') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+        <div className="max-w-4xl mx-auto px-6 py-20">
+          <div className="space-y-8 animate-fadeIn">
+            <div className="inline-block">
+              <div className="text-sm font-semibold tracking-wider text-amber-400 uppercase mb-2">
+                Growth Diagnostic
+              </div>
+              <h1 className="text-5xl md:text-7xl font-bold leading-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-300">
+                Find What's Actually Broken
+              </h1>
+            </div>
+            
+            <p className="text-xl text-slate-300 max-w-2xl leading-relaxed">
+              Are you growing fast enough to hit your goals?
+            </p>
+            
+            <p className="text-lg text-slate-400 max-w-2xl leading-relaxed">
+              We analyze your growth velocity—new customers, churn, and revenue trajectory—to show you if you're on track and where the bottleneck is.
+            </p>
+
+            <div className="flex gap-4 pt-8">
+              <button
+                onClick={() => setStep('form')}
+                className="px-8 py-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+              >
+                Start Diagnostic →
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-6 pt-12 border-t border-slate-700">
+              <div className="space-y-2">
+                <div className="text-3xl font-bold text-amber-400">2min</div>
+                <div className="text-sm text-slate-400">Time to complete</div>
+              </div>
+              <div className="space-y-2">
+                <div className="text-3xl font-bold text-amber-400">6</div>
+                <div className="text-sm text-slate-400">Simple questions</div>
+              </div>
+              <div className="space-y-2">
+                <div className="text-3xl font-bold text-amber-400">100%</div>
+                <div className="text-sm text-slate-400">Your actual data</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          .animate-fadeIn {
+            animation: fadeIn 0.8s ease-out;
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Form Screen
+  if (step === 'form') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+        <div className="max-w-2xl mx-auto px-6 py-20">
+          <button
+            onClick={() => setStep('intro')}
+            className="text-slate-400 hover:text-white mb-8 flex items-center gap-2 transition-colors"
+          >
+            ← Back
+          </button>
+
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-4xl font-bold mb-3">Six Quick Questions</h2>
+              <p className="text-slate-400">About your current growth and goals</p>
+            </div>
+
+            <div className="space-y-8">
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold text-slate-300 tracking-wide">
+                  1. What's your current monthly revenue?
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg">$</span>
+                  <input
+                    type="number"
+                    value={formData.currentRevenue}
+                    onChange={(e) => setFormData({...formData, currentRevenue: e.target.value})}
+                    placeholder="50000"
+                    className="w-full pl-8 pr-4 py-4 bg-slate-800/50 border-2 border-slate-700 rounded-lg text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all text-lg"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold text-slate-300 tracking-wide">
+                  2. Where do you want to be in 12 months?
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg">$</span>
+                  <input
+                    type="number"
+                    value={formData.goalRevenue}
+                    onChange={(e) => setFormData({...formData, goalRevenue: e.target.value})}
+                    placeholder="150000"
+                    className="w-full pl-8 pr-4 py-4 bg-slate-800/50 border-2 border-slate-700 rounded-lg text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all text-lg"
+                  />
+                </div>
+                <p className="text-sm text-slate-500">Monthly revenue goal</p>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold text-slate-300 tracking-wide">
+                  3. How many customers do you have total?
+                </label>
+                <input
+                  type="number"
+                  value={formData.totalCustomers}
+                  onChange={(e) => setFormData({...formData, totalCustomers: e.target.value})}
+                  placeholder="100"
+                  className="w-full px-4 py-4 bg-slate-800/50 border-2 border-slate-700 rounded-lg text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all text-lg"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold text-slate-300 tracking-wide">
+                  4. How many NEW customers do you add per month on average?
+                </label>
+                <input
+                  type="number"
+                  value={formData.newCustomers}
+                  onChange={(e) => setFormData({...formData, newCustomers: e.target.value})}
+                  placeholder="15"
+                  className="w-full px-4 py-4 bg-slate-800/50 border-2 border-slate-700 rounded-lg text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all text-lg"
+                />
+                <p className="text-sm text-slate-500">Think about a typical month</p>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold text-slate-300 tracking-wide">
+                  5. How many customers do you LOSE per month on average?
+                </label>
+                <input
+                  type="number"
+                  value={formData.lostCustomers}
+                  onChange={(e) => setFormData({...formData, lostCustomers: e.target.value})}
+                  placeholder="5"
+                  className="w-full px-4 py-4 bg-slate-800/50 border-2 border-slate-700 rounded-lg text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all text-lg"
+                />
+                <p className="text-sm text-slate-500">Due to churn/cancellation - typical month</p>
+              </div>
+
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold text-slate-300 tracking-wide">
+                  6. How much do you spend on sales + marketing per month?
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg">$</span>
+                  <input
+                    type="number"
+                    value={formData.marketingSpend}
+                    onChange={(e) => setFormData({...formData, marketingSpend: e.target.value})}
+                    placeholder="20000"
+                    className="w-full pl-8 pr-4 py-4 bg-slate-800/50 border-2 border-slate-700 rounded-lg text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all text-lg"
+                  />
+                </div>
+                <p className="text-sm text-slate-500">Includes ads, agencies, sales salaries, tools - rough estimate is fine</p>
+              </div>
+
+              <button
+                onClick={() => {
+                  if (formData.currentRevenue && formData.goalRevenue && formData.totalCustomers && formData.newCustomers && formData.lostCustomers && formData.marketingSpend) {
+                    calculateResults();
+                  }
+                }}
+                className="w-full py-4 px-8 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 mt-8"
+              >
+                Show My Results →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Results Screen
+  if (step === 'results' && results) {
+    const statusColors = {
+      critical: { bg: 'bg-red-500/10', border: 'border-red-500', text: 'text-red-400', dot: 'bg-red-500' },
+      warning: { bg: 'bg-amber-500/10', border: 'border-amber-500', text: 'text-amber-400', dot: 'bg-amber-500' },
+      healthy: { bg: 'bg-emerald-500/10', border: 'border-emerald-500', text: 'text-emerald-400', dot: 'bg-emerald-500' }
+    };
+
+    const colors = statusColors[results.status];
+    const isOnTrack = parseFloat(results.gap) <= 0;
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+        <div className="max-w-4xl mx-auto px-6 py-20">
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={resetTool}
+              className="text-slate-400 hover:text-white flex items-center gap-2 transition-colors no-print"
+            >
+              ← Start Over
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white rounded-lg transition-all flex items-center gap-2 no-print"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Download PDF
+            </button>
+          </div>
+
+          <div className="space-y-8">
+            {/* Warnings */}
+            {results.warnings && results.warnings.length > 0 && (
+              <div className="bg-amber-500/10 border-2 border-amber-500 rounded-xl p-6">
+                <div className="flex items-start gap-4">
+                  <div className="text-2xl">⚠️</div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                      Data Check
+                    </div>
+                    <div className="space-y-2">
+                      {results.warnings.map((warning, i) => (
+                        <div key={i} className="text-white">{warning}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Executive Summary */}
+            <div className="bg-gradient-to-r from-slate-800 to-slate-800/50 border-2 border-slate-600 rounded-xl p-8">
+              <div className="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-6 border-b border-slate-700 pb-3">
+                Executive Summary
+              </div>
+              <div className="space-y-4 text-slate-100">
+                <div>
+                  <span className="font-bold text-white">Your #1 Problem:</span>{" "}
+                  {results.bottleneck === 'retention' && `Retention - you're losing ${results.lostCustomers} customers/month (${results.churnRate}% churn)`}
+                  {results.bottleneck === 'acquisition' && `Acquisition volume - only adding ${results.newCustomers} customers/month`}
+                  {results.bottleneck === 'stagnant' && 'No customer acquisition happening'}
+                  {results.bottleneck === 'close' && 'Minor execution gap - you\'re nearly on pace'}
+                  {results.bottleneck === 'ontrack' && 'None - you\'re on track to hit your goal'}
+                  {results.bottleneck === 'balanced' && 'Both acquisition and retention need improvement'}
+                </div>
+                
+                <div>
+                  <span className="font-bold text-white">The Gap:</span>{" "}
+                  {parseFloat(results.gap) > 0 
+                    ? `Need +${Math.abs(parseFloat(results.gap)).toFixed(1)} more net customers/month to hit $${parseInt(results.goalRevenue).toLocaleString()}/mo goal`
+                    : `On track - current pace will hit $${parseInt(results.goalRevenue).toLocaleString()}/mo goal`}
+                </div>
+                
+                <div>
+                  <span className="font-bold text-white">The Fix:</span>{" "}
+                  {results.bottleneck === 'retention' && `Cut churn from ${results.churnRate}% to ${(parseFloat(results.churnRate) / 2).toFixed(1)}% OR double acquisition to ${(parseFloat(results.newCustomers) * 2).toFixed(0)}/month`}
+                  {results.bottleneck === 'acquisition' && !results.isOrganic && parseFloat(results.ltvCacRatio) >= 3 && `Scale acquisition by ${((parseFloat(results.netCustomersNeededPerMonth) + parseFloat(results.lostCustomers)) / parseFloat(results.newCustomers)).toFixed(1)}x (requires ~$${parseInt(results.costToScale).toLocaleString()}/month more spend)`}
+                  {results.bottleneck === 'acquisition' && !results.isOrganic && parseFloat(results.ltvCacRatio) < 3 && 'Fix unit economics before scaling - improve CAC efficiency or retention first'}
+                  {results.bottleneck === 'acquisition' && results.isOrganic && 'Begin paid acquisition or scale organic channels'}
+                  {results.bottleneck === 'stagnant' && 'Start acquiring customers - growth is impossible without new customers'}
+                  {results.bottleneck === 'close' && `Small push needed: add ${Math.abs(parseFloat(results.gap)).toFixed(0)} more customers/month OR reduce churn slightly`}
+                  {results.bottleneck === 'ontrack' && 'Maintain current pace and optimize for efficiency'}
+                  {results.bottleneck === 'balanced' && 'Improve both acquisition and retention simultaneously'}
+                </div>
+                
+                {!results.isOrganic && (parseFloat(results.ltvCacRatio) < 3 || parseFloat(results.paybackPeriodMonths) > parseFloat(results.avgLifetimeMonths)) && (
+                  <div className="pt-3 border-t border-slate-700">
+                    <span className="font-bold text-red-400">Critical:</span>{" "}
+                    {parseFloat(results.ltvCacRatio) < 1 && `LTV:CAC is ${results.ltvCacRatio} - you're losing money on every customer`}
+                    {parseFloat(results.ltvCacRatio) >= 1 && parseFloat(results.ltvCacRatio) < 3 && `LTV:CAC is ${results.ltvCacRatio} - margins too thin to scale safely`}
+                    {parseFloat(results.paybackPeriodMonths) > parseFloat(results.avgLifetimeMonths) && ` • Payback (${results.paybackPeriodMonths}mo) exceeds customer lifetime (${results.avgLifetimeMonths}mo)`}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Status Banner */}
+            <div className={`${colors.bg} border-2 ${colors.border} rounded-xl p-6`}>
+              <div className="flex items-start gap-4">
+                <div className={`${colors.dot} w-3 h-3 rounded-full mt-1.5 animate-pulse`}></div>
+                <div className="flex-1">
+                  <div className={`text-sm font-semibold ${colors.text} uppercase tracking-wider mb-1`}>
+                    {isOnTrack ? 'On Track' : results.status === 'critical' ? 'Significant Gap' : 'Growth Gap'}
+                  </div>
+                  <div className="text-xl font-semibold text-white">
+                    {results.bottleneckMessage}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Current State */}
+            <div className="bg-slate-800/50 border-2 border-slate-700 rounded-xl p-8">
+              <div className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                Your Current Growth Rate
+              </div>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">Net New Customers/Month</div>
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-5xl font-bold text-white">
+                      {results.netNewCustomers > 0 ? '+' : ''}{results.netNewCustomers}
+                    </div>
+                    <div className="text-slate-500">customers</div>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-400">
+                    Adding {results.newCustomers}, losing {results.lostCustomers}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">Monthly Growth Rate</div>
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-5xl font-bold text-amber-400">
+                      {results.currentGrowthRate}%
+                    </div>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-400">
+                    Churn rate: {results.churnRate}%/month
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Acquisition Economics */}
+            <div className="bg-slate-800/50 border-2 border-slate-700 rounded-xl p-8">
+              <div className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                Your Acquisition Economics
+              </div>
+              <div className="grid md:grid-cols-3 gap-6">
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">Customer Acquisition Cost</div>
+                  <div className="text-3xl font-bold text-white">${parseInt(results.cac).toLocaleString()}</div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    ${results.marketingSpend} ÷ {results.newCustomers} customers
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">Marketing as % of Revenue</div>
+                  <div className="text-3xl font-bold text-white">{results.spendAsPercentOfRevenue}%</div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    ${results.marketingSpend} / ${results.currentRevenue}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">Avg Revenue per Customer</div>
+                  <div className="text-3xl font-bold text-white">${parseInt(results.arpc).toLocaleString()}</div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    Per month
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* LTV:CAC Check */}
+            {!results.isOrganic && !results.isStagnant && (
+              <div className={`border-2 rounded-xl p-8 ${
+                parseFloat(results.ltvCacRatio) < 1 
+                  ? 'bg-red-500/10 border-red-500' 
+                  : parseFloat(results.ltvCacRatio) < 3 
+                  ? 'bg-amber-500/10 border-amber-500'
+                  : 'bg-emerald-500/10 border-emerald-500'
+              }`}>
+              <div className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                Unit Economics Check
+              </div>
+              <div className="grid md:grid-cols-3 gap-6 mb-4">
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">Customer Lifetime Value</div>
+                  <div className="text-4xl font-bold text-white">${parseInt(results.ltv).toLocaleString()}</div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    ${results.arpc}/mo × {results.avgLifetimeMonths} months × 70% margin
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">LTV:CAC Ratio</div>
+                  <div className="flex items-baseline gap-2">
+                    <div className={`text-4xl font-bold ${
+                      parseFloat(results.ltvCacRatio) < 1 
+                        ? 'text-red-400' 
+                        : parseFloat(results.ltvCacRatio) < 3 
+                        ? 'text-amber-400'
+                        : 'text-emerald-400'
+                    }`}>
+                      {results.ltvCacRatio}
+                    </div>
+                    <div className="text-slate-500 text-xl">:1</div>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    ${results.ltv} LTV ÷ ${results.cac} CAC
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-slate-400 mb-2">CAC Payback Period</div>
+                  <div className={`text-4xl font-bold ${
+                    parseFloat(results.paybackPeriodMonths) > parseFloat(results.avgLifetimeMonths)
+                      ? 'text-red-400'
+                      : parseFloat(results.paybackPeriodMonths) > 12
+                      ? 'text-amber-400'
+                      : 'text-emerald-400'
+                  }`}>
+                    {results.paybackPeriodMonths}
+                  </div>
+                  <div className="text-slate-500 text-xl">months</div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    ${results.cac} ÷ (${results.arpc} × 70%)
+                  </div>
+                </div>
+              </div>
+              
+              <div className="border-t border-slate-700 pt-4">
+                {parseFloat(results.paybackPeriodMonths) > parseFloat(results.avgLifetimeMonths) && (
+                  <div className="bg-red-500/20 border border-red-500 rounded-lg p-3 mb-3">
+                    <div className="text-red-400 font-semibold text-sm">
+                      🚨 Critical: You never break even on customers
+                    </div>
+                    <div className="text-white text-sm mt-1">
+                      Payback is {results.paybackPeriodMonths} months but customers only stay {results.avgLifetimeMonths} months on average.
+                    </div>
+                  </div>
+                )}
+                
+                {parseFloat(results.ltvCacRatio) < 1 && (
+                  <div className="text-red-400 font-semibold mb-2">
+                    🚨 Critical: You're losing money on every customer
+                  </div>
+                )}
+                {parseFloat(results.ltvCacRatio) >= 1 && parseFloat(results.ltvCacRatio) < 3 && (
+                  <div className="text-amber-400 font-semibold mb-2">
+                    ⚠️ Warning: Your margins are thin
+                  </div>
+                )}
+                {parseFloat(results.ltvCacRatio) >= 3 && parseFloat(results.paybackPeriodMonths) <= parseFloat(results.avgLifetimeMonths) && (
+                  <div className="text-emerald-400 font-semibold mb-2">
+                    ✓ Healthy unit economics
+                  </div>
+                )}
+                <div className="text-slate-300 text-sm">
+                  {parseFloat(results.ltvCacRatio) < 1 && "Your customers don't generate enough value to cover acquisition costs. Fix pricing, reduce CAC, or improve retention before scaling."}
+                  {parseFloat(results.ltvCacRatio) >= 1 && parseFloat(results.ltvCacRatio) < 3 && "Aim for 3:1 LTV:CAC and sub-12 month payback for sustainable growth. Small changes in CAC or churn could break profitability."}
+                  {parseFloat(results.ltvCacRatio) >= 3 && parseFloat(results.paybackPeriodMonths) <= 12 && "Your business model supports growth. Focus on execution and scaling efficiently."}
+                  {parseFloat(results.ltvCacRatio) >= 3 && parseFloat(results.paybackPeriodMonths) > 12 && parseFloat(results.paybackPeriodMonths) <= parseFloat(results.avgLifetimeMonths) && "Your LTV:CAC is healthy but payback is slow (" + results.paybackPeriodMonths + " months). This is cash-intensive growth."}
+                </div>
+              </div>
+            </div>
+            )}
+
+            {/* Organic Growth Note */}
+            {results.isOrganic && (
+              <div className="bg-slate-800/50 border-2 border-slate-700 rounded-xl p-8">
+                <div className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                  Organic Growth Model
+                </div>
+                <div className="text-slate-300">
+                  <p className="mb-3">You're growing organically with $0 marketing spend. This means CAC and LTV:CAC metrics don't apply.</p>
+                  <p>
+                    <strong className="text-white">Your LTV is ${parseInt(results.ltv).toLocaleString()}</strong> per customer 
+                    (${results.arpc}/mo × {results.avgLifetimeMonths} months). To scale growth, you'll eventually need to invest in paid acquisition.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Key Assumptions */}
+            <div className="bg-slate-800/50 border-2 border-slate-700 rounded-xl p-8">
+              <div className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                What You Need to Hit Your Goal
+              </div>
+              
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-slate-400">Current Revenue</span>
+                    <span className="text-white font-semibold">${parseInt(results.currentRevenue).toLocaleString()}/mo</span>
+                  </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-slate-400">Goal Revenue (12 months)</span>
+                    <span className="text-amber-400 font-semibold">${parseInt(results.goalRevenue).toLocaleString()}/mo</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Growth Needed</span>
+                    <span className="text-white font-semibold">{results.revenueGrowthNeeded}%</span>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-700 pt-6">
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <div className="text-sm text-slate-400 mb-2">You're Adding</div>
+                      <div className="text-3xl font-bold text-white">+{results.netNewCustomers}</div>
+                      <div className="text-sm text-slate-500">net customers/month</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-slate-400 mb-2">You Need to Add</div>
+                      <div className="text-3xl font-bold text-amber-400">+{results.netCustomersNeededPerMonth}</div>
+                      <div className="text-sm text-slate-500">net customers/month</div>
+                    </div>
+                  </div>
+                </div>
+
+                {!isOnTrack && (
+                  <div className={`${colors.bg} border ${colors.border} rounded-lg p-4`}>
+                    <div className={`text-sm font-semibold ${colors.text} mb-1`}>The Gap</div>
+                    <div className="text-white">
+                      You need <strong>{Math.abs(parseFloat(results.gap)).toFixed(1)} more net customers per month</strong> to hit your goal.
+                    </div>
+                  </div>
+                )}
+
+                {isOnTrack && (
+                  <div className="bg-emerald-500/10 border border-emerald-500 rounded-lg p-4">
+                    <div className="text-sm font-semibold text-emerald-400 mb-1">You're On Track!</div>
+                    <div className="text-white">
+                      At your current pace, you'll hit your revenue goal.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Key Assumptions */}
+            <div className="bg-slate-800/30 border border-slate-600 rounded-xl p-6">
+              <div className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                Key Assumptions
+              </div>
+              <div className="space-y-2 text-sm text-slate-300">
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-400 mt-0.5">•</span>
+                  <span>Assumes revenue per customer stays at <strong>${parseInt(results.arpc).toLocaleString()}/month</strong></span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-400 mt-0.5">•</span>
+                  <span>Assumes CAC stays at <strong>${parseInt(results.cac).toLocaleString()}</strong> (likely optimistic as you scale)</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-400 mt-0.5">•</span>
+                  <span>Assumes steady, linear growth (adding the same number of customers each month). If you're targeting hypergrowth, you may need to accelerate beyond what's shown here.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Where's the Bottleneck */}
+            <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-8">
+              <h3 className="text-2xl font-bold mb-4">Where's the Bottleneck?</h3>
+              <div className="space-y-4 text-slate-300 leading-relaxed">
+                
+                {results.bottleneck === 'retention' && (
+                  <>
+                    <p>
+                      <strong className="text-red-400">Your primary issue is retention.</strong> You're adding {results.newCustomers} customers 
+                      but losing {results.lostCustomers}—that's a {results.churnRate}% monthly churn rate.
+                    </p>
+                    {parseFloat(results.ltvCacRatio) < 3 && (
+                      <p className="text-amber-400">
+                        This is especially critical because your LTV:CAC ratio is {results.ltvCacRatio}. High churn is directly hurting your unit economics.
+                      </p>
+                    )}
+                    <p>
+                      To hit your goal, you could either:
+                    </p>
+                    <ul className="list-disc list-inside space-y-2 text-slate-400">
+                      <li>Cut churn in half (from {results.churnRate}% to {(parseFloat(results.churnRate) / 2).toFixed(1)}%)</li>
+                      <li>Or add {(parseFloat(results.newCustomers) * 2).toFixed(0)} new customers/month instead of {results.newCustomers}</li>
+                      <li>Or some combination of both</li>
+                    </ul>
+                    <p className="text-sm text-slate-400 border-t border-slate-700 pt-4 mt-4">
+                      Fixing retention is usually more cost-effective than doubling acquisition. Focus on why customers are leaving.
+                    </p>
+                  </>
+                )}
+
+                {results.bottleneck === 'acquisition' && (
+                  <>
+                    <p>
+                      <strong className="text-amber-400">Your primary issue is acquisition volume.</strong> You're only adding {results.newCustomers} new 
+                      customers per month, but you need {results.netCustomersNeededPerMonth} net new customers to hit your goal.
+                    </p>
+                    <p>
+                      Your retention is decent ({results.churnRate}% monthly churn), so the bottleneck is top-of-funnel.
+                    </p>
+                    
+                    {results.isOrganic && (
+                      <div className="bg-slate-800/50 border border-slate-600 rounded-lg p-4 my-4">
+                        <div className="text-sm font-semibold text-slate-300 mb-2">Organic Growth Limit</div>
+                        <div className="text-white text-sm">
+                          You're currently growing organically ($0 marketing spend). To scale to {((parseFloat(results.netCustomersNeededPerMonth) + parseFloat(results.lostCustomers))).toFixed(0)} new customers/month, 
+                          you'll likely need to invest in paid acquisition channels.
+                        </div>
+                      </div>
+                    )}
+                    
+                    {!results.isOrganic && parseFloat(results.ltvCacRatio) < 3 && (
+                      <div className="bg-red-500/10 border border-red-500 rounded-lg p-4 my-4">
+                        <div className="text-red-400 font-semibold mb-2">
+                          ⚠️ Warning: Don't scale broken unit economics
+                        </div>
+                        <div className="text-white text-sm">
+                          Your LTV:CAC is {results.ltvCacRatio} - you're barely profitable (or unprofitable) on each customer. 
+                          Scaling acquisition now would just lose money faster. Fix unit economics first by improving CAC efficiency or retention.
+                        </div>
+                      </div>
+                    )}
+                    
+                    {!results.isOrganic && parseFloat(results.ltvCacRatio) >= 3 && (
+                      <>
+                        <p>
+                          To hit your goal, you need to roughly <strong>{((parseFloat(results.netCustomersNeededPerMonth) + parseFloat(results.lostCustomers)) / parseFloat(results.newCustomers)).toFixed(1)}x your new customer acquisition</strong> (from {results.newCustomers} to {(parseFloat(results.netCustomersNeededPerMonth) + parseFloat(results.lostCustomers)).toFixed(0)} gross adds/month).
+                        </p>
+                        
+                        <div className="bg-slate-800/50 border border-slate-600 rounded-lg p-4 my-4">
+                          <div className="text-sm font-semibold text-slate-300 mb-2">Cost to Scale</div>
+                          <div className="text-lg text-white">
+                            At your current CAC of <strong>${parseInt(results.cac).toLocaleString()}</strong>, closing the gap would require 
+                            an additional <strong>${parseInt(results.costToScale).toLocaleString()}/month</strong> in marketing spend.
+                          </div>
+                          <div className="text-sm text-slate-400 mt-2">
+                            ({results.additionalGrossCustomersNeeded} additional customers × ${parseInt(results.cac).toLocaleString()} CAC)
+                          </div>
+                        </div>
+
+                        <p className="text-sm text-slate-400 border-t border-slate-700 pt-4 mt-4">
+                          The question is: can you afford to spend ${parseInt(results.costToScale).toLocaleString()}/month more? If not, you need to improve CAC efficiency first.
+                        </p>
+                      </>
+                    )}
+                  </>
+                )}
+
+                {results.bottleneck === 'stagnant' && (
+                  <>
+                    <p>
+                      <strong className="text-red-400">Critical: No customer acquisition.</strong> You're adding 0 new customers per month. 
+                      Growth is mathematically impossible without acquisition.
+                    </p>
+                    <p>
+                      You need to implement a customer acquisition strategy immediately—whether that's paid marketing, outbound sales, 
+                      partnerships, or content marketing.
+                    </p>
+                    <p className="text-sm text-slate-400 border-t border-slate-700 pt-4 mt-4">
+                      Even with perfect retention, you can't grow without new customers. This is the highest priority bottleneck to fix.
+                    </p>
+                  </>
+                )}
+
+                {results.bottleneck === 'close' && (
+                  <>
+                    <p>
+                      <strong className="text-amber-400">You're close to your goal pace.</strong> You need {results.netCustomersNeededPerMonth} net 
+                      new customers per month and you're at {results.netNewCustomers}.
+                    </p>
+                    <p>
+                      Small improvements in either acquisition or retention will get you there:
+                    </p>
+                    <ul className="list-disc list-inside space-y-2 text-slate-400">
+                      <li>Add {Math.abs(parseFloat(results.gap)).toFixed(0)} more new customers/month{!results.isOrganic && ` (would cost ~$${(Math.abs(parseFloat(results.gap)) * parseFloat(results.cac)).toLocaleString()}/month at current CAC)`}</li>
+                      <li>Or reduce churn by {Math.abs(parseFloat(results.gap)).toFixed(0)} customers/month</li>
+                    </ul>
+                  </>
+                )}
+
+                {results.bottleneck === 'ontrack' && (
+                  <>
+                    <p>
+                      <strong className="text-emerald-400">You're on track.</strong> At {results.netNewCustomers} net new customers per month, 
+                      you'll hit your revenue goal.
+                    </p>
+                    <p>
+                      Your churn rate is {results.churnRate}% monthly, which is manageable. The question now is execution consistency—can you maintain this pace?
+                    </p>
+                    <p className="text-sm text-slate-400 border-t border-slate-700 pt-4 mt-4">
+                      The next level is optimizing efficiency: Can you hit the same growth at lower CAC? Can you improve retention to compound faster?
+                    </p>
+                  </>
+                )}
+
+                {results.bottleneck === 'balanced' && (
+                  <>
+                    <p>
+                      Your growth is relatively balanced between acquisition and retention, but you're not hitting the pace needed for your goal.
+                    </p>
+                    <p>
+                      You'll need to improve both:
+                    </p>
+                    <ul className="list-disc list-inside space-y-2 text-slate-400">
+                      <li>Increase new customer acquisition</li>
+                      <li>Reduce churn from {results.churnRate}%</li>
+                    </ul>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Next Steps */}
+            <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-8">
+              <h3 className="text-2xl font-bold mb-4">Recommended Next Steps</h3>
+              <div className="space-y-3 text-slate-300">
+                {results.bottleneck === 'retention' && (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">1.</span>
+                      <span><strong>Diagnose churn causes:</strong> Run exit surveys, analyze churned customer cohorts, review support tickets for patterns</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">2.</span>
+                      <span><strong>Audit onboarding:</strong> Map first 30-90 days - where do customers get stuck or fail to see value?</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">3.</span>
+                      <span><strong>Implement retention program:</strong> Customer success check-ins, proactive support, engagement monitoring</span>
+                    </div>
+                  </>
+                )}
+                
+                {results.bottleneck === 'acquisition' && !results.isOrganic && parseFloat(results.ltvCacRatio) >= 3 && (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">1.</span>
+                      <span><strong>Increase marketing budget:</strong> You need ~${parseInt(results.costToScale).toLocaleString()}/month more to hit your goal</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">2.</span>
+                      <span><strong>Expand channels:</strong> Test new acquisition channels while scaling what's working</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">3.</span>
+                      <span><strong>Optimize conversion:</strong> Improve funnel efficiency to reduce CAC as you scale</span>
+                    </div>
+                  </>
+                )}
+                
+                {results.bottleneck === 'acquisition' && (!results.isOrganic && parseFloat(results.ltvCacRatio) < 3) && (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">1.</span>
+                      <span><strong>Fix unit economics first:</strong> Don't scale until LTV:CAC {'>'} 3 and payback {'<'} 12 months</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">2.</span>
+                      <span><strong>Improve CAC efficiency:</strong> Better targeting, higher conversion rates, lower cost channels</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">3.</span>
+                      <span><strong>Improve retention:</strong> Longer customer lifetime = higher LTV = better economics</span>
+                    </div>
+                  </>
+                )}
+                
+                {results.bottleneck === 'stagnant' && (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">1.</span>
+                      <span><strong>Start acquisition:</strong> Implement a marketing/sales strategy to generate new customers</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">2.</span>
+                      <span><strong>Test channels:</strong> Try paid ads, content marketing, outbound sales, partnerships</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">3.</span>
+                      <span><strong>Measure and iterate:</strong> Track CAC and conversion rates from day one</span>
+                    </div>
+                  </>
+                )}
+                
+                {results.bottleneck === 'close' && (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">1.</span>
+                      <span><strong>Minor optimization:</strong> Small improvements in acquisition or retention will close the gap</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">2.</span>
+                      <span><strong>Focus on execution:</strong> Maintain consistency and avoid major changes</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">3.</span>
+                      <span><strong>Monitor closely:</strong> Track weekly to ensure you stay on pace</span>
+                    </div>
+                  </>
+                )}
+                
+                {results.bottleneck === 'ontrack' && (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">1.</span>
+                      <span><strong>Maintain current pace:</strong> Don't break what's working - focus on consistency</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">2.</span>
+                      <span><strong>Optimize efficiency:</strong> Can you hit the same growth at lower CAC?</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">3.</span>
+                      <span><strong>Plan next stage:</strong> What happens after you hit this goal?</span>
+                    </div>
+                  </>
+                )}
+                
+                {results.bottleneck === 'balanced' && (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">1.</span>
+                      <span><strong>Dual focus required:</strong> You need to improve both acquisition and retention</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">2.</span>
+                      <span><strong>Prioritize retention first:</strong> It's typically more cost-effective than scaling acquisition</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-amber-400 font-bold mt-1">3.</span>
+                      <span><strong>Then scale acquisition:</strong> Once retention is solid, invest in growth</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Next Steps */}
+            <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl p-8">
+              <h3 className="text-xl font-bold mb-4">What to Do Next</h3>
+              <div className="space-y-3 mb-6 text-slate-300">
+                <p>This diagnostic shows you <em>where</em> you're stuck, but not <em>why</em>.</p>
+                <p>
+                  {results.bottleneck === 'retention' && "Why are customers churning? Is it onboarding, product fit, support, or pricing?"}
+                  {results.bottleneck === 'acquisition' && "Can you scale acquisition profitably? What's your CAC by channel? Where are the drop-offs?"}
+                  {results.bottleneck === 'close' && "Which lever is easier to move—acquisition or retention?"}
+                  {results.bottleneck === 'ontrack' && "How do you maintain this pace and optimize efficiency?"}
+                  {results.bottleneck === 'balanced' && "Where do you start—acquisition or retention?"}
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                <a
+                  href="mailto:vladpopirda@gmail.com"
+                  className="block w-full py-4 px-6 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all duration-200 text-center"
+                >
+                  Book a Diagnostic Call →
+                </a>
+                <p className="text-sm text-slate-400 text-center">
+                  Free 30-minute call to identify what's blocking your growth
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Print-specific CSS for PDF export */}
+        <style>{`
+          @media print {
+            body {
+              background: white !important;
+            }
+            .no-print {
+              display: none !important;
+            }
+            .bg-gradient-to-br,
+            .bg-gradient-to-r,
+            .bg-slate-900,
+            .bg-slate-800,
+            .bg-slate-700 {
+              background: white !important;
+              color: black !important;
+            }
+            .text-white,
+            .text-slate-100,
+            .text-slate-200,
+            .text-slate-300 {
+              color: #1e293b !important;
+            }
+            .text-slate-400,
+            .text-slate-500 {
+              color: #64748b !important;
+            }
+            .border-slate-600,
+            .border-slate-700 {
+              border-color: #cbd5e1 !important;
+            }
+            .bg-red-500\\/10,
+            .bg-amber-500\\/10,
+            .bg-emerald-500\\/10,
+            .bg-slate-800\\/50,
+            .bg-slate-800\\/30 {
+              background: white !important;
+              border: 1px solid #e2e8f0 !important;
+            }
+            .min-h-screen {
+              min-height: auto !important;
+            }
+            * {
+              print-color-adjust: exact !important;
+              -webkit-print-color-adjust: exact !important;
+            }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+    // Render the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<GrowthDiagnostic />);
+  </script>
+</body>
+</html>
